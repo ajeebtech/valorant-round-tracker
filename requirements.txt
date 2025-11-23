@@ -1,0 +1,7 @@
+tflite-model-maker
+opencv-python
+pillow
+matplotlib
+numpy
+tensorflow>=2.0
+
