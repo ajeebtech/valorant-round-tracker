@@ -161,8 +161,8 @@ class TimerCropper:
         # These are percentages of image dimensions
         center_x = w // 2
         timer_width = int(w * 0.12)   # Timer overlay width (balanced zoom)
-        timer_height = int(h * 0.06)  # Timer overlay height (balanced zoom)
-        timer_y = int(h * 0.04)       # Distance from top (adjusted)
+        timer_height = int(h * 0.08)  # Timer overlay height (increased to fit entire timing)
+        timer_y = int(h * 0.03)       # Distance from top (moved up slightly to include bottom element)
         
         x = center_x - timer_width // 2
         y = timer_y
