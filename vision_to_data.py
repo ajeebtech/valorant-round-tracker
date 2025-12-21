@@ -22,14 +22,8 @@ def encode_image(path):
 def summarize_png(image_path):
     b64 = encode_image(image_path)
 
-    # Prompt to extract timer value and detect spike plant indicator
-    prompt = """Analyze this Valorant timer image and provide:
-1. The timer value (format: M:SS like 1:40, 0:45, etc.)
-2. Whether there's a red triangle visible (spike planted indicator)
-
-Answer in this exact format:
-Timer: [time]
-Red Triangle: [yes/no]"""
+    # Prompt to extract timer value
+    prompt = "Read the text in the image."
 
     # Ollama chat API format
     payload = {
@@ -73,37 +67,16 @@ Red Triangle: [yes/no]"""
         print(json.dumps(data, indent=2))
         return None
     
-    # Extract timer value and red triangle indicator
+    # Extract timer value using regex (format: M:SS or MM:SS)
     timer_pattern = r'\b(\d{1,2}:\d{2})\b'
     timer_match = re.search(timer_pattern, response_text)
     
-    # Check for red triangle indicator
-    red_triangle_pattern = r'Red Triangle:\s*(yes|no)'
-    red_triangle_match = re.search(red_triangle_pattern, response_text, re.IGNORECASE)
-    
-    # Also check for variations in the response
-    has_red_triangle = False
-    if red_triangle_match:
-        has_red_triangle = red_triangle_match.group(1).lower() == 'yes'
-    else:
-        # Fallback: check if response mentions red triangle, spike, or planted
-        red_indicators = ['red triangle', 'spike planted', 'spike indicator', 'triangle visible']
-        response_lower = response_text.lower()
-        has_red_triangle = any(indicator in response_lower for indicator in red_indicators)
-    
-    result = {
-        'timer': None,
-        'red_triangle': has_red_triangle,
-        'raw_response': response_text.strip()
-    }
-    
     if timer_match:
-        result['timer'] = timer_match.group(1)
-        return result
+        return timer_match.group(1)
     else:
         # If no match found, return the raw response for debugging
         print(f"⚠️  Could not extract timer from response: {response_text}")
-        return result
+        return response_text.strip()
 
 # ---- CLI helper ----
 def summarize_with_timing(image_path):
@@ -111,11 +84,7 @@ def summarize_with_timing(image_path):
     start_time = time.time()
     print(f"Summarizing {image_path}")
     result = summarize_png(image_path)
-    if isinstance(result, dict):
-        print(f"Timer: {result.get('timer', 'N/A')}")
-        print(f"Red Triangle: {'Yes' if result.get('red_triangle') else 'No'}")
-    else:
-        print(result)
+    print(result)
     print("-" * 100)
     end_time = time.time()
     print(f"Time taken: {end_time - start_time:.2f} seconds")

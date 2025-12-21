@@ -1,6 +1,7 @@
 vod_data/
-
 screenshots/
 __pycache__/
 *.mp4
 *.DS_Store
+demo_output/
+

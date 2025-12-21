@@ -16,8 +16,9 @@ from typing import List, Dict, Optional, Tuple
 class RoundDetector:
     """Detects round boundaries from timer readings."""
     
-    # Timer values that indicate round start (buy phase)
-    ROUND_START_TIMES = ['1:39', '1:38', '1:37', '1:36', '1:35', '1:34', '1:33', '1:32', '1:31', '1:30']
+    # Timer values that indicate round start (buy phase end / gameplay start)
+    # We include 1:40 because that's the exact start of a standard round
+    ROUND_START_TIMES = ['1:40', '1:39', '1:38', '1:37', '1:36', '1:35', '1:34', '1:33', '1:32', '1:31', '1:30']
     
     # Spike defuse/explosion countdown range
     SPIKE_COUNTDOWN_START = '0:45'  # Spike timer starts at 45 seconds
@@ -26,6 +27,7 @@ class RoundDetector:
     # Time limits
     SPIKE_TIMEOUT_SECONDS = 35  # Max duration after spike plant
     ROUND_END_BUFFER_SECONDS = 10  # Cut previous round 10s before next starts
+    STANDARD_ROUND_DURATION_SECONDS = 100 # 1:40 is 100 seconds
     
     def __init__(self):
         """Initialize the round detector."""
@@ -61,6 +63,27 @@ class RoundDetector:
             return False
         return timer_str in RoundDetector.ROUND_START_TIMES
     
+    def calculate_round_start_timestamp(self, observed_timestamp: float, timer_str: str) -> float:
+        """
+        Calculate the refined round start timestamp.
+        Since we might sample the timer at 1:35 (5s into the round),
+        we want to adjust the start time back to when it was 1:40.
+        """
+        timer_seconds = self.parse_timer(timer_str)
+        if timer_seconds is None:
+            return observed_timestamp
+            
+        # How many seconds have passed since 1:40?
+        # e.g. timer is 1:35 (95s). Standard starts at 1:40 (100s).
+        # elapsed = 100 - 95 = 5s.
+        elapsed_since_start = self.STANDARD_ROUND_DURATION_SECONDS - timer_seconds
+        
+        # If result is negative (timer > 1:40), it means we are in some weird state
+        # or maybe Buy Phase extensions? Just clip to 0 for safety.
+        elapsed_since_start = max(0, elapsed_since_start)
+        
+        return observed_timestamp - elapsed_since_start
+
     def detect_rounds(self, timer_readings: List[Dict]) -> List[Dict]:
         """
         Detect round boundaries from timer readings.
@@ -91,11 +114,17 @@ class RoundDetector:
             
             # Check for round start
             if self.is_round_start_timer(timer_str):
-                # If there's a current round, end it 10 seconds before this new start
+                # Calculate refined start time
+                refined_start_time = self.calculate_round_start_timestamp(timestamp, timer_str)
+                
+                # If there's a current round, end it
+                # We interpret a new round start detection as a hard boundary
                 if current_round:
+                    # Enforce that new round starts AFTER previous round ends?
+                    # Or just cut the previous round.
                     current_round['end_timestamp'] = max(
                         current_round['start_timestamp'],
-                        timestamp - self.ROUND_END_BUFFER_SECONDS
+                        refined_start_time - self.ROUND_END_BUFFER_SECONDS
                     )
                     current_round['end_reason'] = 'next_round_started'
                     rounds.append(current_round)
@@ -103,7 +132,8 @@ class RoundDetector:
                 # Start new round
                 current_round = {
                     'round_number': len(rounds) + 1,
-                    'start_timestamp': timestamp,
+                    'start_timestamp': refined_start_time,
+                    'observed_start_timestamp': timestamp,
                     'start_timer': timer_str,
                     'end_timestamp': None,
                     'end_reason': None,

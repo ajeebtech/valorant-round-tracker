@@ -87,10 +87,13 @@ class VODProcessor:
         try:
             # Use yt-dlp to download the video
             # Format: 360p video for fast download (timer is still readable at this quality)
+            # Added bot avoidance args
             cmd = [
                 "yt-dlp",
                 "-f", "bestvideo[height<=360][ext=mp4]+bestaudio[ext=m4a]/best[height<=480]/best",
                 "--merge-output-format", "mp4",
+                "--extractor-args", "youtube:player_client=android",
+                "--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
                 "-o", output_template,
                 youtube_url
             ]
