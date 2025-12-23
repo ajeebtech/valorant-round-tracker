@@ -5,8 +5,9 @@ moondream, a model served by ollama, looks at 1 frame/5seconds of a valorant vod
 there are criterias of how this information is used to figure out when a round starts or ends
 
 <img width="1074" height="438" alt="image" src="https://github.com/user-attachments/assets/f9a60380-f584-4fa2-b0e1-0eb11396e6e6" />
-
-'''{
+```json
+[
+{
     "timestamp": 538.7,
     "frame_path": "demo_output/match_582604/map_0/frames/frame_538.7s.jpg",
     "cropped_path": "demo_output/match_582604/map_0/cropped_timers/timer_538.7s.jpg",
@@ -42,4 +43,4 @@ there are criterias of how this information is used to figure out when a round s
     "cropped_path": "demo_output/match_582604/map_0/cropped_timers/timer_588.6s.jpg",
     "timer_value": "nothing"
   },
-  '''
+]
