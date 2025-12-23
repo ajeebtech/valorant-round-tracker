@@ -87,6 +87,18 @@ class RoundDetector:
         
         return observed_timestamp - elapsed_since_start
 
+    @staticmethod
+    def seconds_to_fmt(seconds: float) -> str:
+        """Convert total seconds to M:SS format string."""
+        if seconds is None:
+            return None
+        m = int(seconds // 60)
+        s = int(round(seconds % 60))
+        if s == 60:
+            m += 1
+            s = 0
+        return f"{m}:{s:02d}"
+
     def detect_rounds(self, timer_readings: List[Dict]) -> List[Dict]:
         """
         Detect round boundaries from timer readings.
@@ -129,6 +141,7 @@ class RoundDetector:
                 if current_round and consecutive_nothings >= self.ROUND_END_NOTHING_THRESHOLD:
                     # End the round at the START of the "nothing" sequence
                     current_round['end_timestamp'] = first_nothing_timestamp
+                    current_round['end_time_fmt'] = self.seconds_to_fmt(first_nothing_timestamp)
                     current_round['end_reason'] = 'timer_disappeared'
                     rounds.append(current_round)
                     current_round = None
@@ -152,10 +165,12 @@ class RoundDetector:
                 if current_round:
                     # Enforce that new round starts AFTER previous round ends?
                     # Or just cut the previous round.
-                    current_round['end_timestamp'] = max(
+                    end_time = max(
                         current_round['start_timestamp'],
                         refined_start_time - self.ROUND_END_BUFFER_SECONDS
                     )
+                    current_round['end_timestamp'] = end_time
+                    current_round['end_time_fmt'] = self.seconds_to_fmt(end_time)
                     current_round['end_reason'] = 'next_round_started'
                     rounds.append(current_round)
                 
@@ -163,9 +178,11 @@ class RoundDetector:
                 current_round = {
                     'round_number': len(rounds) + 1,
                     'start_timestamp': refined_start_time,
+                    'start_time_fmt': self.seconds_to_fmt(refined_start_time),
                     'observed_start_timestamp': timestamp,
                     'start_timer': timer_str,
                     'end_timestamp': None,
+                    'end_time_fmt': None,
                     'end_reason': None,
                     'spike_planted': False,
                     'spike_plant_timestamp': None
@@ -188,6 +205,7 @@ class RoundDetector:
                 # If 35 seconds passed since spike plant, end the round
                 if time_since_plant >= self.SPIKE_TIMEOUT_SECONDS:
                     current_round['end_timestamp'] = timestamp
+                    current_round['end_time_fmt'] = self.seconds_to_fmt(timestamp)
                     current_round['end_reason'] = 'spike_timeout'
                     rounds.append(current_round)
                     current_round = None
@@ -196,7 +214,9 @@ class RoundDetector:
         # Close any remaining round
         if current_round:
             # Use last reading timestamp as end
-            current_round['end_timestamp'] = sorted_readings[-1]['timestamp']
+            last_timestamp = sorted_readings[-1]['timestamp']
+            current_round['end_timestamp'] = last_timestamp
+            current_round['end_time_fmt'] = self.seconds_to_fmt(last_timestamp)
             current_round['end_reason'] = 'vod_ended'
             rounds.append(current_round)
         
@@ -227,7 +247,9 @@ class RoundDetector:
             clip = {
                 'round_number': round_data['round_number'],
                 'start_time': round_data['start_timestamp'],
+                'start_time_fmt': round_data.get('start_time_fmt'),
                 'end_time': round_data['end_timestamp'],
+                'end_time_fmt': round_data.get('end_time_fmt'),
                 'duration': round_data.get('duration', 0),
                 'spike_planted': round_data['spike_planted']
             }

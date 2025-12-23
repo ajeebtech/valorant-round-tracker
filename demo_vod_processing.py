@@ -29,7 +29,7 @@ def setup_demo(match_id="demo_test", youtube_url="https://www.youtube.com/watch?
     video_dir.mkdir(parents=True, exist_ok=True)
     
     # Check for local manual override
-    manual_vod_path = Path("test_vod.mp4")
+    manual_vod_path = Path("2.mp4")
     
     # Check if any video already exists in the target dir
     existing_videos = list(video_dir.glob("*.mp4"))
