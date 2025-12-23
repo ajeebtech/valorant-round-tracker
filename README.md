@@ -4,7 +4,8 @@ moondream, a model served by ollama, looks at 1 frame/5seconds of a valorant vod
 
 there are criterias of how this information is used to figure out when a round starts or ends:
 
-<img width="1224" height="514" alt="image" src="https://github.com/user-attachments/assets/404f9d23-bff2-4c33-8647-3afe7d90fa0e" />
+<img width="1142" height="511" alt="image" src="https://github.com/user-attachments/assets/d2cffd02-dcf3-416a-a6bd-8fbdcc95c855" />
+
 
 
 so when moondream finds a cropped frame of the timer space, it describes the frame and then we make sense of that, is it a timer value, is it a spike, or is it just nothing(running ads, breaks, replays, technical pause)
