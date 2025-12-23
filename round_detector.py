@@ -30,7 +30,7 @@ class RoundDetector:
     STANDARD_ROUND_DURATION_SECONDS = 100 # 1:40 is 100 seconds
     
     # Consecutive "nothing" readings required to confirm round end
-    ROUND_END_NOTHING_THRESHOLD = 3
+    ROUND_END_NOTHING_THRESHOLD = 2
     
     def __init__(self):
         """Initialize the round detector."""
@@ -220,12 +220,21 @@ class RoundDetector:
             current_round['end_reason'] = 'vod_ended'
             rounds.append(current_round)
         
-        # Calculate durations
+        # Calculate durations and filter short rounds
+        validated_rounds = []
         for round_data in rounds:
             if round_data['end_timestamp']:
                 round_data['duration'] = round_data['end_timestamp'] - round_data['start_timestamp']
+                
+                # Filter out rounds shorter than 28 seconds (likely false positives or incomplete clips)
+                if round_data['duration'] >= 28.0:
+                    validated_rounds.append(round_data)
         
-        return rounds
+        # Re-index round numbers
+        for i, round_data in enumerate(validated_rounds):
+            round_data['round_number'] = i + 1
+            
+        return validated_rounds
     
     def save_rounds(self, rounds: List[Dict], output_file: Path):
         """Save detected rounds to JSON file."""
