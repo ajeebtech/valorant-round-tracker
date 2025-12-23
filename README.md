@@ -6,7 +6,10 @@ there are criterias of how this information is used to figure out when a round s
 
 <img width="1074" height="438" alt="image" src="https://github.com/user-attachments/assets/f9a60380-f584-4fa2-b0e1-0eb11396e6e6" />
 
-i get these
+so when moondream finds a cropped frame of the timer space, it describes the frame and then we make sense of that, is it a timer value, is it a spike, or is it just nothing(running ads, breaks, replays, technical pause)
+
+<img width="400" height="200" alt="image" src="https://github.com/user-attachments/assets/79e0c8ac-3b15-4543-83c0-522e0e674508" />
+
 
 ```json
 [
