@@ -26,11 +26,28 @@ def setup_demo(match_id="demo_test", youtube_url="https://www.youtube.com/watch?
     
     # --- Step 1: Download Video ---
     video_dir = match_dir / "video"
-    # Check if any video exists
+    video_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Check for local manual override
+    manual_vod_path = Path("test_vod.mp4")
+    
+    # Check if any video already exists in the target dir
     existing_videos = list(video_dir.glob("*.mp4"))
-    if existing_videos:
+    
+    if manual_vod_path.exists():
+        print(f"📦 Found local manual VOD: {manual_vod_path}")
+        # Use shutil to copy if it's not already in place
+        import shutil
+        target_path = video_dir / manual_vod_path.name
+        if not target_path.exists():
+            print(f"   Copying to {target_path}...")
+            shutil.copy(manual_vod_path, target_path)
+        video_path = target_path
+        print(f"✅ Using local video: {video_path.name}")
+        
+    elif existing_videos:
         video_path = existing_videos[0]
-        print(f"✅ Video found: {video_path.name} (Skipping download)")
+        print(f"✅ Video found in cache: {video_path.name} (Skipping download)")
     else:
         print("⬇️  Downloading video...")
         video_path = processor.download_vod(youtube_url, video_dir)
@@ -49,8 +66,8 @@ def setup_demo(match_id="demo_test", youtube_url="https://www.youtube.com/watch?
         print("🎞️  Extracting frames...")
         frame_paths = processor.extract_frames(video_path, frames_dir, processor.frame_interval)
 
-    # For fast testing iteration, limit to first 100 frames (covers ~16 mins)
-    frame_paths = frame_paths[:100]
+    # For fast testing iteration, limit to first 500 frames (covers ~40 mins)
+    frame_paths = frame_paths[:500]
 
     # --- Step 3: Vision Processing (Timer Reading) ---
     # We might want to re-run this if we are tweaking the vision code

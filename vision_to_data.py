@@ -67,16 +67,47 @@ def summarize_png(image_path):
         print(json.dumps(data, indent=2))
         return None
     
-    # Extract timer value using regex (format: M:SS or MM:SS)
-    timer_pattern = r'\b(\d{1,2}:\d{2})\b'
-    timer_match = re.search(timer_pattern, response_text)
-    
-    if timer_match:
-        return timer_match.group(1)
+    # Parse the response using deterministic logic
+    return parse_vision_response(response_text)
+
+def parse_vision_response(text):
+    """
+    Deterministic parser for vision model output.
+    Implements strict logic to convert free-form text to timer values.
+    """
+    if not text:
+        return "nothing"
+
+    # Step 1: Spike override
+    if re.search(r"(pink|red).*(triangle|triangular|circle)", text, re.I):
+        return "spike planted"
+
+    # Step 2: Direct timer match
+    m = re.search(r"\b(\d{1,2}):(\d{2})\b", text)
+    if m:
+        mm, ss = int(m.group(1)), int(m.group(2))
+        # Validation: MM:SS must be <= 1:40 (100 seconds)
+        if mm * 60 + ss <= 100:
+            return f"{mm}:{ss:02d}"
+        else:
+            # Found a timer format but it's out of valid range (e.g. 12:22)
+            return "nothing"
+
+    # Step 3: Extract ALL numbers
+    nums = re.findall(r"\d+", text)
+    nums = [int(n) for n in nums]
+
+    if not nums:
+        return "nothing"
+
+    # Step 4: Coerce numbers -> time (STRICT)
+    m = nums[0]
+    s = nums[-1]
+
+    if m * 60 + s <= 100:
+        return f"{m}:{s:02d}"
     else:
-        # If no match found, return the raw response for debugging
-        print(f"⚠️  Could not extract timer from response: {response_text}")
-        return response_text.strip()
+        return "nothing"
 
 # ---- CLI helper ----
 def summarize_with_timing(image_path):

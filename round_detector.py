@@ -29,6 +29,9 @@ class RoundDetector:
     ROUND_END_BUFFER_SECONDS = 10  # Cut previous round 10s before next starts
     STANDARD_ROUND_DURATION_SECONDS = 100 # 1:40 is 100 seconds
     
+    # Consecutive "nothing" readings required to confirm round end
+    ROUND_END_NOTHING_THRESHOLD = 3
+    
     def __init__(self):
         """Initialize the round detector."""
         pass
@@ -98,6 +101,10 @@ class RoundDetector:
         current_round = None
         spike_plant_time = None
         
+        # State for tracking "nothing" sequence
+        consecutive_nothings = 0
+        first_nothing_timestamp = None
+        
         # Sort readings by timestamp
         sorted_readings = sorted(timer_readings, key=lambda x: x['timestamp'])
         
@@ -111,6 +118,29 @@ class RoundDetector:
             else:
                 timer_str = reading.get('timer_value')
                 has_red_triangle = False
+            
+            # --- Check for "nothing" sequence ---
+            if timer_str == "nothing":
+                if consecutive_nothings == 0:
+                    first_nothing_timestamp = timestamp
+                consecutive_nothings += 1
+                
+                # If we have seen "nothing" consistently and a round is active, end it
+                if current_round and consecutive_nothings >= self.ROUND_END_NOTHING_THRESHOLD:
+                    # End the round at the START of the "nothing" sequence
+                    current_round['end_timestamp'] = first_nothing_timestamp
+                    current_round['end_reason'] = 'timer_disappeared'
+                    rounds.append(current_round)
+                    current_round = None
+                    spike_plant_time = None
+                    # We don't continue looking for start/spike in this reading
+                continue # Skip the rest of processing for this "nothing" frame
+                
+            else:
+                # Valid timer or spike planted -> reset "nothing" tracker
+                consecutive_nothings = 0
+                first_nothing_timestamp = None
+
             
             # Check for round start
             if self.is_round_start_timer(timer_str):
@@ -142,8 +172,11 @@ class RoundDetector:
                 }
                 spike_plant_time = None
             
-            # Check for spike plant (red triangle)
-            if current_round and has_red_triangle and not current_round['spike_planted']:
+            # Check for spike plant (red triangle or text "spike planted")
+            # Note: parse_vision_response might return "spike planted" string
+            is_spike_text = (timer_str == "spike planted")
+            
+            if current_round and (has_red_triangle or is_spike_text) and not current_round['spike_planted']:
                 current_round['spike_planted'] = True
                 current_round['spike_plant_timestamp'] = timestamp
                 spike_plant_time = timestamp
