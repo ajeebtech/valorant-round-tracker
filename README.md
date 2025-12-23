@@ -2,9 +2,10 @@ the valorant round clipper
 
 moondream, a model served by ollama, looks at 1 frame/5seconds of a valorant vod and picks up the amount of time showing in the timer using the vision model.
 
-there are criterias of how this information is used to figure out when a round starts or ends
+there are criterias of how this information is used to figure out when a round starts or ends:
 
-<img width="1074" height="438" alt="image" src="https://github.com/user-attachments/assets/f9a60380-f584-4fa2-b0e1-0eb11396e6e6" />
+<img width="1224" height="514" alt="image" src="https://github.com/user-attachments/assets/404f9d23-bff2-4c33-8647-3afe7d90fa0e" />
+
 
 so when moondream finds a cropped frame of the timer space, it describes the frame and then we make sense of that, is it a timer value, is it a spike, or is it just nothing(running ads, breaks, replays, technical pause)
 
