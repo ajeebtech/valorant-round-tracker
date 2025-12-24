@@ -133,25 +133,29 @@ class VODProcessor:
             return None
 
     def extract_frames(self, video_source: str, output_dir: Path, 
-                      interval: int = 5) -> List[Path]:
+                      interval: int = 5, cropper: Optional[TimerCropper] = None) -> List[Path]:
         """
         Extract frames from video/stream at specified interval.
         
         Args:
             video_source: Path to video file or stream URL
-            output_dir: Directory to save frames
+            output_dir: Directory to save frames (or cropped timers if cropper is used)
             interval: Time interval in seconds between frames
+            cropper: Optional TimerCropper. If provided, crops frames in memory and saves only crops.
             
         Returns:
-            List of paths to extracted frame images
+            List of paths to extracted images
         """
         output_dir.mkdir(parents=True, exist_ok=True)
         
-        source_name = "Stream" if video_source.startswith("http") else Path(video_source).name
-        print(f"🎬 Extracting frames every {interval} seconds from: {source_name}")
+        # Ensure video_source is a string for checking URL
+        video_source_str = str(video_source)
+        source_name = "Stream" if video_source_str.startswith("http") else Path(video_source).name
+        action = "Extracting & Cropping" if cropper else "Extracting"
+        print(f"🎬 {action} frames every {interval} seconds from: {source_name}")
         
         # Open video
-        cap = cv2.VideoCapture(str(video_source))
+        cap = cv2.VideoCapture(video_source_str)
         if not cap.isOpened():
             print(f"❌ Failed to open video source: {video_source}")
             return []
@@ -164,13 +168,8 @@ class VODProcessor:
         print(f"   Video: {duration/60:.1f} mins @ {fps:.1f}fps")
         
         frame_paths = []
-        # Calculate timestamps to extract
-        # If duration is 0 (some streams), we might need to just read until end
-        # But VOD streams usually have duration.
-        
         if duration == 0:
             print("⚠️  Could not determine duration, extracting blindly...")
-            # Fallback logic if needed, but for now assuming valid VOD
         
         current_time = 0
         extracted_count = 0
@@ -183,13 +182,24 @@ class VODProcessor:
             if not ret:
                 print(f"   ⚠️  Stream read failed at {current_time:.1f}s, stopping.")
                 break
-                
-            frame_filename = f"frame_{current_time:.1f}s.jpg"
-            frame_path = output_dir / frame_filename
             
-            cv2.imwrite(str(frame_path), frame)
-            frame_paths.append(frame_path)
-            extracted_count += 1
+            if cropper:
+                # Fast path: Crop in memory, save small image
+                filename = f"timer_{current_time:.1f}s.jpg"
+                filepath = output_dir / filename
+                
+                # Crop direct from numpy array
+                cropped = cropper.crop_timer(image=frame, method='heuristic', output_path=str(filepath))
+                if cropped is not None:
+                    frame_paths.append(filepath)
+                    extracted_count += 1
+            else:
+                # Standard path: Save full frame
+                filename = f"frame_{current_time:.1f}s.jpg"
+                filepath = output_dir / filename
+                cv2.imwrite(str(filepath), frame)
+                frame_paths.append(filepath)
+                extracted_count += 1
             
             if extracted_count % 10 == 0:
                 print(f"   Extracted {extracted_count} frames... ({current_time:.1f}s)", end="\r")
@@ -203,11 +213,11 @@ class VODProcessor:
     
     def process_frames(self, frame_paths: List[Path], output_dir: Path) -> List[Dict]:
         """
-        Process frames: crop timer and read values.
+        Process frames: crop timer (if needed) and read values.
         
         Args:
-            frame_paths: List of frame image paths
-            output_dir: Directory to save cropped timers
+            frame_paths: List of image paths (full frames or cropped timers)
+            output_dir: Directory to save cropped timers (if not already there)
             
         Returns:
             List of dictionaries with timestamp and timer readings
@@ -221,29 +231,44 @@ class VODProcessor:
         
         for i, frame_path in enumerate(frame_paths, 1):
             # Extract timestamp from filename
-            timestamp_str = frame_path.stem.replace("frame_", "").replace("s", "")
+            # Supports 'frame_10.0s.jpg' and 'timer_10.0s.jpg'
+            name = frame_path.stem
+            if name.startswith("frame_"):
+                timestamp_str = name.replace("frame_", "").replace("s", "")
+                is_already_cropped = False
+            elif name.startswith("timer_"):
+                timestamp_str = name.replace("timer_", "").replace("s", "")
+                is_already_cropped = True
+            else:
+                print(f"Skipping unknown filename format: {name}")
+                continue
+                
             try:
                 timestamp = float(timestamp_str)
             except ValueError:
-                print(f"Skipping invalid filename: {frame_path.name}")
+                print(f"Skipping invalid timestamp: {name}")
                 continue
             
             print(f"  [{i}/{len(frame_paths)}] Processing {timestamp:.1f}s...", end=" ")
             
-            # Crop timer region
-            cropped_filename = f"timer_{timestamp:.1f}s.jpg"
-            cropped_path = cropped_dir / cropped_filename
-            
-            if not cropped_path.exists():
-                cropped_img = self.timer_cropper.crop_timer(
-                    str(frame_path),
-                    method='heuristic',
-                    output_path=str(cropped_path)
-                )
+            if is_already_cropped:
+                # Fast path: input is the cropped image
+                cropped_path = frame_path
+            else:
+                # Standard path: Crop timer region from full frame
+                cropped_filename = f"timer_{timestamp:.1f}s.jpg"
+                cropped_path = cropped_dir / cropped_filename
                 
-                if cropped_img is None:
-                    print("❌ Failed to crop")
-                    continue
+                if not cropped_path.exists():
+                    cropped_img = self.timer_cropper.crop_timer(
+                        str(frame_path),
+                        method='heuristic',
+                        output_path=str(cropped_path)
+                    )
+                    
+                    if cropped_img is None:
+                        print("❌ Failed to crop")
+                        continue
             
             # Read timer value
             timer_value = summarize_png(str(cropped_path))
@@ -304,17 +329,24 @@ class VODProcessor:
         else:
             print("✅ Using Direct Stream (No download required)")
 
-        # Step 2: Extract frames
-        frames_dir = match_dir / "frames"
-        # Only re-extract if empty or force? (Naive: always re-extract if streaming)
-        # If folder exists and has frames, maybe skip? But partial extraction is bad.
-        # User implies "Stream... instead of downloading".
+        # Step 2: Extract frames (Fast extraction with crop)
+        # We save directly to cropped_timers because we skip full frames
+        cropped_dir = match_dir / "cropped_timers"
+        frames_dir = match_dir / "frames" # kept for reference if needed, but unused in fast path
         
-        frame_paths = self.extract_frames(video_source, frames_dir, self.frame_interval)
+        # Use fast path: crop during extraction
+        print(f"⚡ Using Fast Extract (Cropping in memory)...")
+        frame_paths = self.extract_frames(
+            video_source, 
+            cropped_dir, # Save to cropped dir
+            self.frame_interval,
+            cropper=self.timer_cropper # Enable fast crop
+        )
         if not frame_paths:
             return None
         
-        # Step 3: Process frames (crop + read timer)
+        # Step 3: Process frames (read timer values)
+        # frame_paths now contains paths to cropped images
         timer_results = self.process_frames(frame_paths, match_dir)
         
         # Step 4: Save timer results

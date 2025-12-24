@@ -170,24 +170,29 @@ class TimerCropper:
         
         return (x, y, timer_width, timer_height)
     
-    def crop_timer(self, image_path: str, method: str = 'heuristic', 
-                   output_path: Optional[str] = None) -> Optional[np.ndarray]:
+    def crop_timer(self, image_path: Optional[str] = None, method: str = 'heuristic', 
+                   output_path: Optional[str] = None, image: Optional[np.ndarray] = None) -> Optional[np.ndarray]:
         """
         Crop timer region from a screenshot.
         
         Args:
-            image_path: Path to input screenshot
-            method: Detection method ('heuristic' is default and recommended since timer is always in same place)
+            image_path: Path to input screenshot (optional if image is provided)
+            method: Detection method ('heuristic' is default and recommended)
             output_path: Optional path to save cropped image
+            image: Input image as numpy array (optional, used instead of loading from path)
             
         Returns:
             Cropped image as numpy array, or None if detection failed
         """
-        # Load image
-        image = cv2.imread(image_path)
+        # Load image if not provided directly
         if image is None:
-            print(f"Error: Could not load image {image_path}")
-            return None
+            if image_path is None:
+                print("Error: Must provide either image_path or image")
+                return None
+            image = cv2.imread(image_path)
+            if image is None:
+                print(f"Error: Could not load image {image_path}")
+                return None
         
         # Since timer is always in the same place, use heuristic method
         # (Other methods kept for compatibility but not recommended)
