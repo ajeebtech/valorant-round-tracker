@@ -116,13 +116,29 @@ class VODProcessor:
             print("❌ yt-dlp not found. Please install it: pip install yt-dlp")
             return None
     
-    def extract_frames(self, video_path: Path, output_dir: Path, 
+    def get_stream_url(self, youtube_url: str) -> Optional[str]:
+        """Get direct stream URL from YouTube URL using yt-dlp."""
+        print(f"🔗 Getting stream URL for {youtube_url}...")
+        cmd = [
+            "yt-dlp",
+            "-g", 
+            "-f", "bestvideo[height<=360][ext=mp4]/best[height<=360]",  # 360p is enough
+            youtube_url
+        ]
+        try:
+            url = subprocess.check_output(cmd).decode("utf-8").strip()
+            return url
+        except subprocess.CalledProcessError as e:
+            print(f"Error getting stream URL: {e}")
+            return None
+
+    def extract_frames(self, video_source: str, output_dir: Path, 
                       interval: int = 5) -> List[Path]:
         """
-        Extract frames from video at specified interval.
+        Extract frames from video/stream at specified interval.
         
         Args:
-            video_path: Path to video file
+            video_source: Path to video file or stream URL
             output_dir: Directory to save frames
             interval: Time interval in seconds between frames
             
@@ -131,12 +147,13 @@ class VODProcessor:
         """
         output_dir.mkdir(parents=True, exist_ok=True)
         
-        print(f"🎬 Extracting frames every {interval} seconds from: {video_path.name}")
+        source_name = "Stream" if video_source.startswith("http") else Path(video_source).name
+        print(f"🎬 Extracting frames every {interval} seconds from: {source_name}")
         
         # Open video
-        cap = cv2.VideoCapture(str(video_path))
+        cap = cv2.VideoCapture(str(video_source))
         if not cap.isOpened():
-            print(f"❌ Failed to open video: {video_path}")
+            print(f"❌ Failed to open video source: {video_source}")
             return []
         
         # Get video properties
@@ -144,32 +161,43 @@ class VODProcessor:
         total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
         duration = total_frames / fps if fps > 0 else 0
         
-        print(f"   Video: {duration:.1f}s @ {fps:.1f}fps")
+        print(f"   Video: {duration/60:.1f} mins @ {fps:.1f}fps")
         
         frame_paths = []
-        frame_interval = int(fps * interval)
-        frame_count = 0
+        # Calculate timestamps to extract
+        # If duration is 0 (some streams), we might need to just read until end
+        # But VOD streams usually have duration.
+        
+        if duration == 0:
+            print("⚠️  Could not determine duration, extracting blindly...")
+            # Fallback logic if needed, but for now assuming valid VOD
+        
+        current_time = 0
         extracted_count = 0
         
-        while True:
+        while current_time < duration:
+            # Seek to timestamp (ms)
+            cap.set(cv2.CAP_PROP_POS_MSEC, current_time * 1000)
+            
             ret, frame = cap.read()
             if not ret:
+                print(f"   ⚠️  Stream read failed at {current_time:.1f}s, stopping.")
                 break
-            
-            # Extract frame at interval
-            if frame_count % frame_interval == 0:
-                timestamp = frame_count / fps
-                frame_filename = f"frame_{timestamp:.1f}s.jpg"
-                frame_path = output_dir / frame_filename
                 
-                cv2.imwrite(str(frame_path), frame)
-                frame_paths.append(frame_path)
-                extracted_count += 1
+            frame_filename = f"frame_{current_time:.1f}s.jpg"
+            frame_path = output_dir / frame_filename
             
-            frame_count += 1
+            cv2.imwrite(str(frame_path), frame)
+            frame_paths.append(frame_path)
+            extracted_count += 1
+            
+            if extracted_count % 10 == 0:
+                print(f"   Extracted {extracted_count} frames... ({current_time:.1f}s)", end="\r")
+            
+            current_time += interval
         
         cap.release()
-        print(f"✅ Extracted {extracted_count} frames")
+        print(f"\n✅ Extracted {extracted_count} frames")
         
         return frame_paths
     
@@ -194,7 +222,11 @@ class VODProcessor:
         for i, frame_path in enumerate(frame_paths, 1):
             # Extract timestamp from filename
             timestamp_str = frame_path.stem.replace("frame_", "").replace("s", "")
-            timestamp = float(timestamp_str)
+            try:
+                timestamp = float(timestamp_str)
+            except ValueError:
+                print(f"Skipping invalid filename: {frame_path.name}")
+                continue
             
             print(f"  [{i}/{len(frame_paths)}] Processing {timestamp:.1f}s...", end=" ")
             
@@ -202,15 +234,16 @@ class VODProcessor:
             cropped_filename = f"timer_{timestamp:.1f}s.jpg"
             cropped_path = cropped_dir / cropped_filename
             
-            cropped_img = self.timer_cropper.crop_timer(
-                str(frame_path),
-                method='heuristic',
-                output_path=str(cropped_path)
-            )
-            
-            if cropped_img is None:
-                print("❌ Failed to crop")
-                continue
+            if not cropped_path.exists():
+                cropped_img = self.timer_cropper.crop_timer(
+                    str(frame_path),
+                    method='heuristic',
+                    output_path=str(cropped_path)
+                )
+                
+                if cropped_img is None:
+                    print("❌ Failed to crop")
+                    continue
             
             # Read timer value
             timer_value = summarize_png(str(cropped_path))
@@ -254,15 +287,30 @@ class VODProcessor:
         
         # Create output directory structure
         match_dir = self.output_base_dir / f"match_{match_id}" / f"map_{map_index}"
+        match_dir.mkdir(parents=True, exist_ok=True)
         
-        # Step 1: Download VOD
-        video_path = self.download_vod(youtube_url, match_dir / "video")
-        if not video_path:
-            return None
+        # Step 1: Get Video Source (Stream or Download)
+        # Try to stream first
+        video_source = self.get_stream_url(youtube_url)
+        video_path_str = "stream"
         
+        if not video_source:
+             print("⚠️  Streaming failed, falling back to download")
+             video_path = self.download_vod(youtube_url, match_dir / "video")
+             if not video_path:
+                 return None
+             video_source = str(video_path)
+             video_path_str = str(video_path)
+        else:
+            print("✅ Using Direct Stream (No download required)")
+
         # Step 2: Extract frames
         frames_dir = match_dir / "frames"
-        frame_paths = self.extract_frames(video_path, frames_dir, self.frame_interval)
+        # Only re-extract if empty or force? (Naive: always re-extract if streaming)
+        # If folder exists and has frames, maybe skip? But partial extraction is bad.
+        # User implies "Stream... instead of downloading".
+        
+        frame_paths = self.extract_frames(video_source, frames_dir, self.frame_interval)
         if not frame_paths:
             return None
         

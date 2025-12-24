@@ -132,29 +132,29 @@ def main():
     all_matches_data = []
     
     try:
-        # Scrape pages 3, 2, 1 (in that order)
-        for page in [3,2,1]:
-            match_links = scrape_match_links(driver, page)
+        # Scrape only page 1 (the most recent results)
+        page = 1
+        match_links = scrape_match_links(driver, page)
+        
+        for match_info in match_links:
+            match_id = match_info['match_id']
+            match_url = match_info['url']
             
-            for match_info in match_links:
-                match_id = match_info['match_id']
-                match_url = match_info['url']
-                
-                print(f"Scraping VODs for match {match_id}...")
-                vod_links = scrape_vod_links(driver, match_url)
-                
-                match_data = {
-                    'match_id': match_id,
-                    'match_url': match_url,
-                    'vod_links': vod_links,
-                    'vod_count': len(vod_links)
-                }
-                
-                all_matches_data.append(match_data)
-                print(f"  Found {len(vod_links)} VOD(s) for match {match_id}")
-                
-                # Be respectful to the server - add a small delay
-                time.sleep(1)
+            print(f"Scraping VODs for match {match_id}...")
+            vod_links = scrape_vod_links(driver, match_url)
+            
+            match_data = {
+                'match_id': match_id,
+                'match_url': match_url,
+                'vod_links': vod_links,
+                'vod_count': len(vod_links)
+            }
+            
+            all_matches_data.append(match_data)
+            print(f"  Found {len(vod_links)} VOD(s) for match {match_id}")
+            
+            # Be respectful to the server - add a small delay
+            time.sleep(1)
         
         # Save to JSON file
         output_file = 'vlr_vods.json'
