@@ -140,6 +140,6 @@ if __name__ == '__main__':
     # You can change this URL to whatever video you want to test with
     setup_demo(
         match_id="stream_test", 
-        youtube_url="https://youtu.be/FCUbMt85wX4?t=143",
+        youtube_url="https://youtu.be/hdzfXlr_U5o",
         use_stream=True
     )

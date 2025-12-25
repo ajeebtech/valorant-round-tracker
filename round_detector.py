@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 Valorant Round Detection Module
 
@@ -132,6 +131,15 @@ class RoundDetector:
                 has_red_triangle = False
             
             # --- Check for "nothing" sequence ---
+            
+            # Filter out broadcast replays that appear as random mid-round times after "nothing"
+            # If we see a time like 1:29-0:31 immediately after "nothing", it's likely a replay
+            if consecutive_nothings > 0 and timer_str != "nothing":
+                t_secs = self.parse_timer(timer_str)
+                # 1:29 is 89s, 0:31 is 31s
+                if t_secs is not None and 31 <= t_secs <= 89:
+                    timer_str = "nothing"
+
             if timer_str == "nothing":
                 if consecutive_nothings == 0:
                     first_nothing_timestamp = timestamp
