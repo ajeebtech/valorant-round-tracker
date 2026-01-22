@@ -7,10 +7,34 @@ so you can iterate quickly on the vision processing and round detection logic.
 
 import os
 import json
+import urllib.parse
 from pathlib import Path
 from process_vods import VODProcessor
 
-def setup_demo(match_id="demo_test", youtube_url="https://www.youtube.com/watch?v=F2N6YC69OUQ&t=4s", use_stream=True):
+def parse_youtube_url(url):
+    """Parses video ID and start time from YouTube URL."""
+    parsed = urllib.parse.urlparse(url)
+    query = urllib.parse.parse_qs(parsed.query)
+    
+    video_id = query.get('v', [None])[0]
+    t_param = query.get('t', ['0s'])[0]
+    
+    # helper to parse '352s' or '1h2m3s'
+    start_time = 0
+    if t_param.endswith('s'):
+        try:
+            start_time = float(t_param[:-1])
+        except ValueError:
+            start_time = 0
+    else:
+        try:
+            start_time = float(t_param)
+        except ValueError:
+            start_time = 0
+            
+    return video_id, start_time
+
+def setup_demo(match_id="demo_test", youtube_url="https://www.youtube.com/watch?v=te42xAzwqjg&t=352s", use_stream=True):
     """
     Setup a demo environment for iterative testing.
     """
@@ -18,11 +42,14 @@ def setup_demo(match_id="demo_test", youtube_url="https://www.youtube.com/watch?
     processor = VODProcessor(output_base_dir=output_base)
     processor.frame_interval = 10  # 5 or 10 seconds
     
+    vid_id, start_time = parse_youtube_url(youtube_url)
+    
     match_dir = Path(output_base) / f"match_{match_id}" / "map_0"
     match_dir.mkdir(parents=True, exist_ok=True)
     
     print(f"\n🧪 TEST BENCH: Match {match_id}")
     print(f"📂 Output Dir: {match_dir}")
+    print(f"⏱️  Start Time Offset: {start_time}s")
     
     # --- Step 1: Video Source (Stream or File) ---
     video_source = None
@@ -76,32 +103,27 @@ def setup_demo(match_id="demo_test", youtube_url="https://www.youtube.com/watch?
     # Check for existing cropped timers
     existing_crops = list(cropped_dir.glob("timer_*.jpg"))
     
-    # If we have many crops and we are NOT streaming (files), assume valid cache
-    # For streaming, we might want to refresh valid cache too if we want to skip extraction
-    # Let's say if > 10 crops exist, we skip extraction
+    # Filter crops that are >= start_time to avoid using old cache from different start times if same match_id
+    existing_crops = [p for p in existing_crops if float(p.stem.replace('timer_', '').replace('s', '')) >= start_time]
+    
     if len(existing_crops) > 10: 
         print(f"✅ Cropped timers found: {len(existing_crops)} (Skipping extraction)")
-        # collect paths
-        # Sort by timestamp in filename "timer_10.5s.jpg"
         frame_paths = sorted(existing_crops, key=lambda p: float(p.stem.replace('timer_', '').replace('s', '')))
     else:
         print("🎞️  Extracting & Cropping frames...")
-        # Note: extract_frames handles both Path and str (URL)
-        # We pass cropper to enable fast extraction (no full frames saved)
         frame_paths = processor.extract_frames(
             video_source, 
             cropped_dir, 
             processor.frame_interval,
-            cropper=processor.timer_cropper
+            cropper=processor.timer_cropper,
+            start_time=start_time,
+            max_frames=500
         )
 
     # For fast testing iteration, limit to first 500 frames if streaming to avoid long wait
-    # Or keep 500
     frame_paths = frame_paths[:500]
 
     # --- Step 3: Vision Processing (Timer Reading) ---
-    # We might want to re-run this if we are tweaking the vision code
-    # For now, let's load it if it exists, but you can set force_vision=True to re-run
     force_vision = False 
     
     results_file = match_dir / "timer_readings.json"
@@ -109,17 +131,15 @@ def setup_demo(match_id="demo_test", youtube_url="https://www.youtube.com/watch?
     
     if results_file.exists() and not force_vision:
         print(f"✅ Timer readings found (Skipping vision processing)")
-        # Check if we should re-read if frame paths differ? Naive check.
         with open(results_file, 'r') as f:
             timer_results = json.load(f)
     else:
         print("👁️  Running Vision Model (Timer Reading)...")
-        # process_frames now handles input paths being cropped images
-        timer_results = processor.process_frames(frame_paths, match_dir)
+        # Added early stopping after 30 consecutive "nothing" readings
+        timer_results = processor.process_frames(frame_paths, match_dir, stop_after_nothings=30)
         processor.save_results(timer_results, results_file)
 
     # --- Step 4: Round Detection Logic ---
-    # This is likely what we want to iterate on most?
     print("\n🧠 Running Round Detection Logic...")
     rounds = processor.round_detector.detect_rounds(timer_results)
     
@@ -137,9 +157,8 @@ def setup_demo(match_id="demo_test", youtube_url="https://www.youtube.com/watch?
     print(f"   Check {match_dir} for results.")
 
 if __name__ == '__main__':
-    # You can change this URL to whatever video you want to test with
     setup_demo(
-        match_id="stream_test", 
-        youtube_url="https://youtu.be/hdzfXlr_U5o",
+        match_id="te42xAzwqjg", 
+        youtube_url="https://www.youtube.com/watch?v=wx6KecG3N50",
         use_stream=True
     )

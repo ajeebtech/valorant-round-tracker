@@ -5,3 +5,6 @@ __pycache__/
 *.DS_Store
 demo_output/
 .env
+batch_output/
+vct_vod_processing/
+.jpg

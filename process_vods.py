@@ -20,6 +20,7 @@ import os
 import subprocess
 import sys
 import time
+import urllib.parse
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
@@ -78,28 +79,36 @@ class VODProcessor:
         """
         output_dir.mkdir(parents=True, exist_ok=True)
         
+        # Strip timestamp parameters
+        base_url = youtube_url.split('&t=')[0].split('?t=')[0]
+        
         # Extract video ID for filename
-        video_id = youtube_url.split('/')[-1].split('?')[0]
+        video_id = base_url.split('/')[-1].split('?')[0]
         output_template = str(output_dir / f"{video_id}.%(ext)s")
         
-        print(f"📥 Downloading VOD: {youtube_url}")
+        print(f"📥 Downloading VOD: {base_url}")
         
+        # Ensure common binary paths are in the environment for yt-dlp to find JS runtimes
+        env = os.environ.copy()
+        paths = ["/usr/local/bin", "/opt/homebrew/bin", "/usr/bin", "/bin"]
+        env["PATH"] = ":".join(paths) + ":" + env.get("PATH", "")
+
         try:
             # Use yt-dlp to download the video
             # Format: 360p video for fast download (timer is still readable at this quality)
             # Added bot avoidance args
             cmd = [
                 "yt-dlp",
-                "-f", "bestvideo[height<=360][ext=mp4]+bestaudio[ext=m4a]/best[height<=480]/best",
+                "-f", "bestvideo[height<=360][ext=mp4]+bestaudio[ext=m4a]/best[height<=360]/best",
                 "--merge-output-format", "mp4",
-                "--extractor-args", "youtube:player_client=android",
+                "--extractor-args", "youtube:player_client=web",
                 "--cookies-from-browser", "chrome",
                 "--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
                 "-o", output_template,
-                youtube_url
+                base_url
             ]
             
-            result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+            result = subprocess.run(cmd, capture_output=True, text=True, check=True, env=env)
             
             # Find the downloaded file
             downloaded_files = list(output_dir.glob(f"{video_id}.*"))
@@ -119,23 +128,31 @@ class VODProcessor:
     
     def get_stream_url(self, youtube_url: str) -> Optional[str]:
         """Get direct stream URL from YouTube URL using yt-dlp."""
-        print(f"🔗 Getting stream URL for {youtube_url}...")
+        # Strip timestamp parameters as they can cause issues with format resolution
+        base_url = youtube_url.split('&t=')[0].split('?t=')[0]
+        print(f"🔗 Getting stream URL for {base_url}...")
+        
+        # Ensure common binary paths are in the environment for yt-dlp to find JS runtimes
+        env = os.environ.copy()
+        paths = ["/usr/local/bin", "/opt/homebrew/bin", "/usr/bin", "/bin"]
+        env["PATH"] = ":".join(paths) + ":" + env.get("PATH", "")
+
         cmd = [
             "yt-dlp",
             "-g", 
-            "-f", "bestvideo[height<=360][ext=mp4]/best[height<=360]",  # 360p is enough
-            "--cookies-from-browser", "chrome",
-            youtube_url
+            "-f", "134/133/18/best[height<=360]", 
+            base_url
         ]
         try:
-            url = subprocess.check_output(cmd).decode("utf-8").strip()
+            url = subprocess.check_output(cmd, env=env).decode("utf-8").strip()
             return url
         except subprocess.CalledProcessError as e:
             print(f"Error getting stream URL: {e}")
             return None
 
     def extract_frames(self, video_source: str, output_dir: Path, 
-                      interval: int = 5, cropper: Optional[TimerCropper] = None) -> List[Path]:
+                      interval: int = 5, cropper: Optional[TimerCropper] = None,
+                      start_time: float = 0, max_frames: Optional[int] = None) -> List[Path]:
         """
         Extract frames from video/stream at specified interval.
         
@@ -144,6 +161,8 @@ class VODProcessor:
             output_dir: Directory to save frames (or cropped timers if cropper is used)
             interval: Time interval in seconds between frames
             cropper: Optional TimerCropper. If provided, crops frames in memory and saves only crops.
+            start_time: Start extraction at this timestamp (seconds)
+            max_frames: optional limit on number of frames to extract
             
         Returns:
             List of paths to extracted images
@@ -155,6 +174,8 @@ class VODProcessor:
         source_name = "Stream" if video_source_str.startswith("http") else Path(video_source).name
         action = "Extracting & Cropping" if cropper else "Extracting"
         print(f"🎬 {action} frames every {interval} seconds from: {source_name}")
+        if start_time > 0:
+            print(f"   Starting at offset: {start_time}s")
         
         # Open video
         cap = cv2.VideoCapture(video_source_str)
@@ -173,16 +194,34 @@ class VODProcessor:
         if duration == 0:
             print("⚠️  Could not determine duration, extracting blindly...")
         
-        current_time = 0
+        current_time = start_time
         extracted_count = 0
         
-        while current_time < duration:
+        while (duration == 0 or current_time < duration):
+            if max_frames and extracted_count >= max_frames:
+                print(f"   Reached limit of {max_frames} frames.")
+                break
+
             # Seek to timestamp (ms)
-            cap.set(cv2.CAP_PROP_POS_MSEC, current_time * 1000)
+            success = False
+            for attempt in range(3):
+                cap.set(cv2.CAP_PROP_POS_MSEC, current_time * 1000)
+                ret, frame = cap.read()
+                
+                if ret:
+                    success = True
+                    break
+                else:
+                    if not video_source_str.startswith("http"):
+                        break # Don't retry for local files
+                    
+                    print(f"   ⚠️  Stream read failed at {current_time:.1f}s (Attempt {attempt+1}/3). Retrying...")
+                    cap.release()
+                    time.sleep(5) # Wait a bit before retrying
+                    cap = cv2.VideoCapture(video_source_str)
             
-            ret, frame = cap.read()
-            if not ret:
-                print(f"   ⚠️  Stream read failed at {current_time:.1f}s, stopping.")
+            if not success:
+                print(f"   ❌ Stream read failed after retries at {current_time:.1f}s, stopping extraction.")
                 break
             
             if cropper:
@@ -213,13 +252,14 @@ class VODProcessor:
         
         return frame_paths
     
-    def process_frames(self, frame_paths: List[Path], output_dir: Path) -> List[Dict]:
+    def process_frames(self, frame_paths: List[Path], output_dir: Path, stop_after_nothings: int = 0) -> List[Dict]:
         """
         Process frames: crop timer (if needed) and read values.
         
         Args:
             frame_paths: List of image paths (full frames or cropped timers)
             output_dir: Directory to save cropped timers (if not already there)
+            stop_after_nothings: If > 0, stop processing after this many consecutive "nothing" readings
             
         Returns:
             List of dictionaries with timestamp and timer readings
@@ -228,8 +268,11 @@ class VODProcessor:
         cropped_dir.mkdir(parents=True, exist_ok=True)
         
         print(f"⏱️  Processing {len(frame_paths)} frames...")
+        if stop_after_nothings > 0:
+            print(f"   🛑 Will stop after {stop_after_nothings} consecutive 'nothing' readings")
         
         results = []
+        consecutive_nothings = 0
         
         for i, frame_path in enumerate(frame_paths, 1):
             # Extract timestamp from filename
@@ -275,6 +318,17 @@ class VODProcessor:
             # Read timer value
             timer_value = summarize_png(str(cropped_path))
             
+            # Handle dictionary return from vision model (e.g. {'timer': 'nothing', ...})
+            timer_str = timer_value
+            if isinstance(timer_value, dict):
+                timer_str = timer_value.get('timer', 'nothing')
+            
+            # Update consecutive "nothing" counter
+            if timer_str == "nothing":
+                consecutive_nothings += 1
+            else:
+                consecutive_nothings = 0
+            
             result = {
                 'timestamp': timestamp,
                 'frame_path': str(frame_path),
@@ -283,7 +337,12 @@ class VODProcessor:
             }
             
             results.append(result)
-            print(f"Timer: {timer_value}")
+            print(f"Timer: {timer_str}")
+            
+            # Check for early exit
+            if stop_after_nothings > 0 and consecutive_nothings >= stop_after_nothings:
+                print(f"\n🛑 Stopped early due to {consecutive_nothings} consecutive 'nothing' readings.")
+                break
         
         print(f"✅ Processed {len(results)} frames successfully")
         
@@ -295,7 +354,20 @@ class VODProcessor:
             json.dump(results, f, indent=2)
         print(f"💾 Saved results to: {output_file}")
     
-    def process_vod(self, youtube_url: str, match_id: str, map_index: int = 0) -> Optional[Dict]:
+    def _parse_start_time(self, url: str) -> float:
+        """Helper to parse 't=' parameter from YouTube URL."""
+        try:
+            parsed = urllib.parse.urlparse(url)
+            query = urllib.parse.parse_qs(parsed.query)
+            t_param = query.get('t', ['0s'])[0]
+            
+            if t_param.endswith('s'):
+                return float(t_param[:-1])
+            return float(t_param)
+        except (ValueError, IndexError, AttributeError):
+            return 0.0
+
+    def process_vod(self, youtube_url: str, match_id: str, map_index: int = 0, max_frames: int = 500) -> Optional[Dict]:
         """
         Process a single VOD through the complete pipeline.
         
@@ -303,6 +375,7 @@ class VODProcessor:
             youtube_url: YouTube URL of the VOD
             match_id: Match ID for organizing output
             map_index: Index of the map/VOD within the match
+            max_frames: Maximum number of frames to extract
             
         Returns:
             Dictionary with processing results and metadata
@@ -310,6 +383,12 @@ class VODProcessor:
         print(f"\n{'='*80}")
         print(f"Processing VOD: Match {match_id}, Map {map_index + 1}")
         print(f"URL: {youtube_url}")
+        
+        # Parse start time from URL
+        start_time = self._parse_start_time(youtube_url)
+        if start_time > 0:
+            print(f"⏱️  Detected Start Time: {start_time}s")
+            
         print(f"{'='*80}\n")
         
         # Create output directory structure
@@ -330,11 +409,10 @@ class VODProcessor:
              video_path_str = str(video_path)
         else:
             print("✅ Using Direct Stream (No download required)")
-
+ 
         # Step 2: Extract frames (Fast extraction with crop)
         # We save directly to cropped_timers because we skip full frames
         cropped_dir = match_dir / "cropped_timers"
-        frames_dir = match_dir / "frames" # kept for reference if needed, but unused in fast path
         
         # Use fast path: crop during extraction
         print(f"⚡ Using Fast Extract (Cropping in memory)...")
@@ -342,14 +420,16 @@ class VODProcessor:
             video_source, 
             cropped_dir, # Save to cropped dir
             self.frame_interval,
-            cropper=self.timer_cropper # Enable fast crop
+            cropper=self.timer_cropper, # Enable fast crop
+            start_time=start_time,
+            max_frames=max_frames
         )
         if not frame_paths:
             return None
         
         # Step 3: Process frames (read timer values)
         # frame_paths now contains paths to cropped images
-        timer_results = self.process_frames(frame_paths, match_dir)
+        timer_results = self.process_frames(frame_paths, match_dir, stop_after_nothings=30)
         
         # Step 4: Save timer results
         results_file = match_dir / "timer_readings.json"
@@ -375,7 +455,7 @@ class VODProcessor:
             'match_id': match_id,
             'map_index': map_index,
             'youtube_url': youtube_url,
-            'video_path': str(video_path),
+            'video_path': video_path_str,
             'num_frames': len(frame_paths),
             'num_readings': len(timer_results),
             'num_rounds': len(rounds),
