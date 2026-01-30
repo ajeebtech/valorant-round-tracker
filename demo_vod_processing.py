@@ -159,6 +159,6 @@ def setup_demo(match_id="demo_test", youtube_url="https://www.youtube.com/watch?
 if __name__ == '__main__':
     setup_demo(
         match_id="te42xAzwqjg", 
-        youtube_url="https://www.youtube.com/watch?v=wx6KecG3N50",
+        youtube_url="https://www.youtube.com/watch?v=NjTA3k8a2X4",
         use_stream=True
     )

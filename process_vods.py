@@ -140,7 +140,7 @@ class VODProcessor:
         cmd = [
             "yt-dlp",
             "-g", 
-            "-f", "134/133/18/best[height<=360]", 
+            "-f", "18/best[height<=480]/best", 
             base_url
         ]
         try:
@@ -152,7 +152,8 @@ class VODProcessor:
 
     def extract_frames(self, video_source: str, output_dir: Path, 
                       interval: int = 5, cropper: Optional[TimerCropper] = None,
-                      start_time: float = 0, max_frames: Optional[int] = None) -> List[Path]:
+                      start_time: float = 0, max_frames: Optional[int] = None,
+                      max_duration: Optional[float] = None) -> List[Path]:
         """
         Extract frames from video/stream at specified interval.
         
@@ -163,6 +164,7 @@ class VODProcessor:
             cropper: Optional TimerCropper. If provided, crops frames in memory and saves only crops.
             start_time: Start extraction at this timestamp (seconds)
             max_frames: optional limit on number of frames to extract
+            max_duration: optional limit on duration to extract (seconds)
             
         Returns:
             List of paths to extracted images
@@ -200,6 +202,10 @@ class VODProcessor:
         while (duration == 0 or current_time < duration):
             if max_frames and extracted_count >= max_frames:
                 print(f"   Reached limit of {max_frames} frames.")
+                break
+            
+            if max_duration and (current_time - start_time) >= max_duration:
+                print(f"   Reached duration limit of {max_duration}s.")
                 break
 
             # Seek to timestamp (ms)
@@ -367,7 +373,9 @@ class VODProcessor:
         except (ValueError, IndexError, AttributeError):
             return 0.0
 
-    def process_vod(self, youtube_url: str, match_id: str, map_index: int = 0, max_frames: int = 500) -> Optional[Dict]:
+    def process_vod(self, youtube_url: str, match_id: str, map_index: int = 0, 
+                    max_frames: int = 500, max_duration: Optional[float] = None,
+                    stop_after_nothings: int = 30) -> Optional[Dict]:
         """
         Process a single VOD through the complete pipeline.
         
@@ -376,6 +384,8 @@ class VODProcessor:
             match_id: Match ID for organizing output
             map_index: Index of the map/VOD within the match
             max_frames: Maximum number of frames to extract
+            max_duration: Maximum duration to process in seconds
+            stop_after_nothings: Stop early if this many consecutive "nothing" readings
             
         Returns:
             Dictionary with processing results and metadata
@@ -422,14 +432,15 @@ class VODProcessor:
             self.frame_interval,
             cropper=self.timer_cropper, # Enable fast crop
             start_time=start_time,
-            max_frames=max_frames
+            max_frames=max_frames,
+            max_duration=max_duration
         )
         if not frame_paths:
             return None
         
         # Step 3: Process frames (read timer values)
         # frame_paths now contains paths to cropped images
-        timer_results = self.process_frames(frame_paths, match_dir, stop_after_nothings=30)
+        timer_results = self.process_frames(frame_paths, match_dir, stop_after_nothings=stop_after_nothings)
         
         # Step 4: Save timer results
         results_file = match_dir / "timer_readings.json"

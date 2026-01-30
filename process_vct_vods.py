@@ -29,8 +29,12 @@ def process_vct_matches(limit=None):
     response = query.execute()
     
     matches = response.data
-    # Post-filter for empty timestamps if needed (sometimes it's [] or NULL)
-    matches_to_process = [m for m in matches if not m.get("timestamps")]
+    # Post-filter for empty timestamps and specific regions
+    target_regions = ["EMEA", "Americas"]
+    matches_to_process = [
+        m for m in matches 
+        if not m.get("timestamps") and any(region in m.get("tournament", "") for region in target_regions)
+    ]
     
     if not matches_to_process:
         print("✅ No pending VCT 2026 matches found.")
@@ -55,9 +59,26 @@ def process_vct_matches(limit=None):
 
         all_map_rounds = []
         
+        # Determine base URLs for all links to detect segments
+        base_urls = [url.split('&t=')[0].split('?t=')[0] for url in vod_links]
+
         for i, url in enumerate(vod_links):
-            print(f"   📹 Map {i+1}/{len(vod_links)}: {url}")
+            print(f"\n   📹 Map {i+1}/{len(vod_links)}: {url}")
             
+            # Check if this link shares a base URL with any other link in this match
+            base_url = base_urls[i]
+            is_shared_vod = base_urls.count(base_url) > 1
+            
+            # If shared VOD, limit to 60 minutes (3600 seconds)
+            max_duration = 3600 if is_shared_vod else None
+            
+            # User said "if nothing is detected for a while we'll finish the match"
+            # 30 readings at 10s interval = 5 minutes. Let's try 15 (2.5 mins) for segments.
+            stop_after_nothings = 15 if is_shared_vod else 30
+            
+            if is_shared_vod:
+                print(f"   ℹ️ Detected as VOD segment. Max duration: 60m, Early stop after {stop_after_nothings} 'nothings'.")
+
             # Create output directory structure to check for existing results
             match_dir = processor.output_base_dir / f"match_{match_id}" / f"map_{i}"
             clips_path = match_dir / "round_clips.json"
@@ -70,8 +91,14 @@ def process_vct_matches(limit=None):
                 continue
 
             # Process VOD - limit frames for faster run if testing
-            # We want detected rounds (round_clips.json content)
-            result = processor.process_vod(url, str(match_id), map_index=i, max_frames=2000)
+            result = processor.process_vod(
+                url, 
+                str(match_id), 
+                map_index=i, 
+                max_frames=2000, 
+                max_duration=max_duration,
+                stop_after_nothings=stop_after_nothings
+            )
             
             if result and 'clips_file' in result:
                 clips_path = Path(result['clips_file'])
