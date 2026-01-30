@@ -120,3 +120,58 @@ so when moondream finds a cropped frame of the timer space, it describes the fra
     "duration": 89.0
   },
   {
+
+## Getting Started
+
+### Prerequisites
+
+1. **Python 3.8+**
+2. **Ollama**: Install [Ollama](https://ollama.com/) and download the Moondream model:
+   ```bash
+   ollama run moondream
+   ```
+3. **yt-dlp**: Required for downloading or streaming YouTube VODs.
+4. **FFmpeg**: Required by yt-dlp for video processing.
+
+### Installation
+
+1. Clone the repository:
+   ```bash
+   git clone https://github.com/your-username/valorant-round-tracker.git
+   cd valorant-round-tracker
+   ```
+
+2. Install dependencies:
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+3. Setup environment variables:
+   ```bash
+   cp .env.example .env
+   # Edit .env with your credentials if using Supabase or Moondream API
+   ```
+
+## Running the Demo
+
+To quickly test the round clipper on a single VOD without setting up a database:
+
+1. Open `demo_vod_processing.py`.
+2. Update the `match_id` and `youtube_url` in the `if __name__ == '__main__':` block:
+   ```python
+   setup_demo(
+       match_id="your_test_id", 
+       youtube_url="https://www.youtube.com/watch?v=your_video_id",
+       use_stream=True
+   )
+   ```
+3. Run the script:
+   ```bash
+   python demo_vod_processing.py
+   ```
+
+The script will:
+*   Resolve the stream URL.
+*   Extract and crop timer frames every 10 seconds.
+*   Use the local Ollama/Moondream model to read the timers.
+*   Generate `rounds.json` and `round_clips.json` in the `demo_output/` folder.

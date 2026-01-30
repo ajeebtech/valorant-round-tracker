@@ -7,4 +7,5 @@ demo_output/
 .env
 batch_output/
 vct_vod_processing/
-.jpg
+.jpgprocess.log
+*.log

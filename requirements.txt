@@ -1,6 +1,8 @@
+opencv-python
+yt-dlp
+supabase
+python-dotenv
 selenium==4.38.0
 webdriver-manager==4.0.2
 beautifulsoup4
 requests
-opencv-python
-yt-dlp
