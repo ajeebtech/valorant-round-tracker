@@ -72,12 +72,13 @@ def process_vct_matches(limit=None):
             # If shared VOD, limit to 60 minutes (3600 seconds)
             max_duration = 3600 if is_shared_vod else None
             
-            # User said "if nothing is detected for a while we'll finish the match"
-            # 30 readings at 10s interval = 5 minutes. Let's try 15 (2.5 mins) for segments.
-            stop_after_nothings = 15 if is_shared_vod else 30
+            # User said "if 15 times nothing is seen, call it closed" only for share live stream links
+            stop_after_nothings = 15 if is_shared_vod else 0
             
             if is_shared_vod:
                 print(f"   ℹ️ Detected as VOD segment. Max duration: 60m, Early stop after {stop_after_nothings} 'nothings'.")
+            else:
+                print(f"   ℹ️ Standalone VOD. Processing entire video (no early stop).")
 
             # Create output directory structure to check for existing results
             match_dir = processor.output_base_dir / f"match_{match_id}" / f"map_{i}"
